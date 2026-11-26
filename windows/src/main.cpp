@@ -212,6 +212,7 @@ struct AppState {
     POINT dragStartCursor = {};
     POINT dragStartWinOrigin = {};
     ULONGLONG dragStartTick = 0;
+    bool dragMoved = false;
     bool hasLastHover = false;
     Pt lastHoverCanvas = {};
     std::string statsDay;
@@ -3098,7 +3099,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 app->dragStartCursor = cur;
                 app->dragStartWinOrigin = { wr.left, wr.top };
                 app->dragStartTick = GetTickCount64();
-                app->physics.setDragging(app->settings.enableDragAnimation, 0.0f);
+                app->dragMoved = false;   // 真的移动超过阈值才开始拖
                 SetCapture(hwnd);
             }
             return 0;
@@ -3153,6 +3154,15 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 GetCursorPos(&cur);
                 RECT wr = {};
                 GetWindowRect(hwnd, &wr);
+
+                // 还没超过 3px 就当"按下未移动"：不动窗口、不进入拖动态
+                if (!app->dragMoved) {
+                    const int mdx = cur.x - app->dragStartCursor.x;
+                    const int mdy = cur.y - app->dragStartCursor.y;
+                    if ((mdx * mdx + mdy * mdy) <= 9) return 0;
+                    app->dragMoved = true;
+                    app->physics.setDragging(app->settings.enableDragAnimation, 0.0f);
+                }
                 int nx = app->dragStartWinOrigin.x + (cur.x - app->dragStartCursor.x);
                 int ny = app->dragStartWinOrigin.y + (cur.y - app->dragStartCursor.y);
                 float stepDx = (float)(nx - wr.left);
@@ -3204,7 +3214,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 const bool cursorStill = (dx * dx + dy * dy) <= 9;   // 光标位移 ≤ 3px
                 const bool windowStill = (wx * wx + wy * wy) <= 9;   // 窗口位移 ≤ 3px
                 const bool quickPress = heldMs <= 350;               // 按住 ≤ 350ms
-                const bool isClick = cursorStill && windowStill && quickPress;
+                const bool isClick = cursorStill && windowStill && quickPress && !app->dragMoved;
 
                 app->isDragging = false;
                 app->physics.setDragging(false);
