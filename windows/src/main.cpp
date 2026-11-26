@@ -70,6 +70,37 @@ constexpr UINT_PTR TIMER_RENDER = 1;
 constexpr int HOTKEY_CLICKTHROUGH_ID = 101;
 UINT g_msgTaskbarCreated = 0;
 
+// ===================== ProfitCalc 彩蛋 =====================
+// 单击（而不是拖动）小猫时唤醒计算器。
+// 路径查找顺序：同目录 → 上一级 → 上两级 → 上三级；计算器自己保证单实例。
+static void launchProfitCalc()
+{
+    wchar_t selfPath[MAX_PATH] = {};
+    if (!GetModuleFileNameW(nullptr, selfPath, MAX_PATH)) return;
+
+    std::wstring dir(selfPath);
+    const size_t slash = dir.find_last_of(L"\\/");
+    if (slash == std::wstring::npos) return;
+    dir.resize(slash + 1);
+
+    const wchar_t* candidates[] = {
+        L"ProfitCalc.exe",
+        L"..\\ProfitCalc.exe",
+        L"..\\..\\ProfitCalc.exe",
+        L"..\\..\\..\\ProfitCalc.exe",
+    };
+
+    for (const wchar_t* rel : candidates)
+    {
+        const std::wstring full = dir + rel;
+        if (GetFileAttributesW(full.c_str()) != INVALID_FILE_ATTRIBUTES)
+        {
+            ShellExecuteW(nullptr, L"open", full.c_str(), nullptr, dir.c_str(), SW_SHOWNORMAL);
+            return;
+        }
+    }
+}
+
 enum MenuCmd : UINT {
     CMD_TOGGLE_VISIBLE = 1001,
     CMD_TOGGLE_CLICKTHROUGH,
@@ -114,6 +145,7 @@ enum MenuCmd : UINT {
     CMD_RESET_POS,
     CMD_CHECK_UPDATE,
     CMD_OPEN_UPDATE,
+    CMD_OPEN_PROFITCALC,
     CMD_RELAUNCH_ADMIN,
     CMD_TOGGLE_RUN_AS_ADMIN,
     CMD_QUIT,
@@ -2458,15 +2490,8 @@ void showContextMenu(AppState& app, POINT screenPt) {
     AppendMenuW(menu, MF_STRING, CMD_OPEN_SETTINGS, tr(L"\u2699\uFE0F \u8BBE\u7F6E\u2026", L"\u2699\uFE0F Settings..."));
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    if (!app.availableUpdateVersion.empty()) {
-        std::wstring upTxt = app.isUpdating
-            ? (std::wstring(tr(L"\u23F3 \u6B63\u5728\u4E0B\u8F7D\u66F4\u65B0 ", L"\u23F3 Downloading update ")) + app.availableUpdateVersion + L"...")
-            : (std::wstring(tr(L"\U0001F195 \u53D1\u73B0\u65B0\u7248\u672C ", L"\U0001F195 Update Available ")) + app.availableUpdateVersion);
-        AppendMenuW(menu, MF_STRING | (app.isUpdating ? MF_GRAYED : 0), CMD_OPEN_UPDATE, upTxt.c_str());
-    } else {
-        std::wstring chkTxt = std::wstring(tr(L"\u68C0\u67E5\u66F4\u65B0 (\u5F53\u524D v", L"Check for Updates (v")) + APP_VERSION + L")";
-        AppendMenuW(menu, MF_STRING, CMD_CHECK_UPDATE, chkTxt.c_str());
-    }
+    AppendMenuW(menu, MF_STRING, CMD_OPEN_PROFITCALC,
+        tr(L"\U0001F431 \u6253\u5F00 ProfitCalc", L"\U0001F431 Open ProfitCalc"));
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, CMD_QUIT, tr(L"\u9000\u51FA KuroCat", L"Quit KuroCat"));
 
@@ -2707,6 +2732,9 @@ void showContextMenu(AppState& app, POINT screenPt) {
             startInAppUpdate(app);
             break;
         }
+        case CMD_OPEN_PROFITCALC:
+            launchProfitCalc();
+            break;
         case CMD_RELAUNCH_ADMIN:
             // The elevated copy starts with --takeover and waits for this one to exit.
             if (relaunchSelfElevated(L"--takeover --no-elevate")) quitApp(app);
@@ -3159,6 +3187,12 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 return 0;
             }
             if (app && app->isDragging) {
+                POINT upPt = {};
+                GetCursorPos(&upPt);
+                const int dx = upPt.x - app->dragStartCursor.x;
+                const int dy = upPt.y - app->dragStartCursor.y;
+                const bool isClick = (dx * dx + dy * dy) <= 16; // 移动不超过 4px 视为点击
+
                 app->isDragging = false;
                 app->physics.setDragging(false);
                 ReleaseCapture();
@@ -3168,6 +3202,9 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 app->settings.posY = wr.top;
                 app->settings.saveToRegistry();
                 refreshSettingsWindow(*app);
+
+                // 单击小猫 → 唤醒计算器（拖动则不算）
+                if (isClick) launchProfitCalc();
             }
             return 0;
 
@@ -3680,7 +3717,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     // Global shortcut Ctrl+Alt+Shift+P to toggle full click-through anytime!
     if (app.menuOwnerHwnd) {
         RegisterHotKey(app.menuOwnerHwnd, HOTKEY_CLICKTHROUGH_ID, MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'P');
-        startAsyncUpdateCheck(app.menuOwnerHwnd, false, 2500);
+        // 已禁用自动更新：更新会覆盖掉"点击唤醒计算器"的补丁
+        // startAsyncUpdateCheck(app.menuOwnerHwnd, false, 2500);
     }
 
     ShowWindow(app.hwnd, SW_SHOWNOACTIVATE);
