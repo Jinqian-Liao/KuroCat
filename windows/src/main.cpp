@@ -216,6 +216,8 @@ struct AppState {
     POINT dragStartWinOrigin = {};
     ULONGLONG dragStartTick = 0;
     bool dragMoved = false;
+    int clickStreak = 0;          // 连续点击次数（用于触发摸头）
+    ULONGLONG lastClickTick = 0;  // 上一次点击的时间
     bool hasLastHover = false;
     Pt lastHoverCanvas = {};
     std::string statsDay;
@@ -3228,7 +3230,28 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 refreshSettingsWindow(*app);
 
                 // 单击小猫 → 唤醒计算器（拖动、长按都不算）
-                if (isClick) launchProfitCalc();
+                if (isClick)
+                {
+                    const ULONGLONG nowTick = GetTickCount64();
+                    app->clickStreak = (nowTick - app->lastClickTick <= 700) ? app->clickStreak + 1 : 1;
+                    app->lastClickTick = nowTick;
+
+                    // 连点 3 下 → 摸头互动（不再重复启动计算器）
+                    if (app->clickStreak >= 3)
+                    {
+                        app->clickStreak = 0;
+                        if (app->settings.petInteraction)
+                        {
+                            const Pt headPt = { CatPhysics::CanvasWidth * 0.5f, CatPhysics::CanvasHeight * 0.20f };
+                            app->physics.registerPetStroke(headPt, 14.0f, true, app->settings);
+                            app->lastSavedPetSessions = app->physics.totalPetSessions;
+                        }
+                    }
+                    else
+                    {
+                        launchProfitCalc();
+                    }
+                }
             }
             return 0;
 
