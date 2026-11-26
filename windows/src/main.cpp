@@ -211,6 +211,7 @@ struct AppState {
     bool inContextMenu = false;
     POINT dragStartCursor = {};
     POINT dragStartWinOrigin = {};
+    ULONGLONG dragStartTick = 0;
     bool hasLastHover = false;
     Pt lastHoverCanvas = {};
     std::string statsDay;
@@ -3096,6 +3097,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 app->isDragging = true;
                 app->dragStartCursor = cur;
                 app->dragStartWinOrigin = { wr.left, wr.top };
+                app->dragStartTick = GetTickCount64();
                 app->physics.setDragging(app->settings.enableDragAnimation, 0.0f);
                 SetCapture(hwnd);
             }
@@ -3189,21 +3191,30 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (app && app->isDragging) {
                 POINT upPt = {};
                 GetCursorPos(&upPt);
+                RECT wr = {};
+                GetWindowRect(hwnd, &wr);
+
                 const int dx = upPt.x - app->dragStartCursor.x;
                 const int dy = upPt.y - app->dragStartCursor.y;
-                const bool isClick = (dx * dx + dy * dy) <= 16; // 移动不超过 4px 视为点击
+                const int wx = wr.left - app->dragStartWinOrigin.x;
+                const int wy = wr.top - app->dragStartWinOrigin.y;
+                const ULONGLONG heldMs = GetTickCount64() - app->dragStartTick;
+
+                // 三个条件都满足才算"点击"，任何一项超了都当作拖动
+                const bool cursorStill = (dx * dx + dy * dy) <= 9;   // 光标位移 ≤ 3px
+                const bool windowStill = (wx * wx + wy * wy) <= 9;   // 窗口位移 ≤ 3px
+                const bool quickPress = heldMs <= 350;               // 按住 ≤ 350ms
+                const bool isClick = cursorStill && windowStill && quickPress;
 
                 app->isDragging = false;
                 app->physics.setDragging(false);
                 ReleaseCapture();
-                RECT wr = {};
-                GetWindowRect(hwnd, &wr);
                 app->settings.posX = wr.left;
                 app->settings.posY = wr.top;
                 app->settings.saveToRegistry();
                 refreshSettingsWindow(*app);
 
-                // 单击小猫 → 唤醒计算器（拖动则不算）
+                // 单击小猫 → 唤醒计算器（拖动、长按都不算）
                 if (isClick) launchProfitCalc();
             }
             return 0;
