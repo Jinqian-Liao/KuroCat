@@ -65,6 +65,9 @@ constexpr UINT WM_TRAYICON = WM_APP + 1;
 constexpr UINT WM_WAKE_EXISTING = WM_APP + 2;
 constexpr UINT WM_UPDATE_CHECK_DONE = WM_APP + 3;
 constexpr UINT WM_UPDATE_DOWNLOAD_DONE = WM_APP + 4;
+
+// 关掉托盘图标：小猫本身右键就有完整菜单，托盘里再放一个显得重复
+constexpr bool SHOW_TRAY_ICON = false;
 constexpr UINT WM_REQUEST_QUIT = WM_APP + 5; // posted by a newer / elevated instance that is taking over
 constexpr UINT_PTR TIMER_RENDER = 1;
 constexpr int HOTKEY_CLICKTHROUGH_ID = 101;
@@ -331,7 +334,7 @@ void showTrayBalloon(AppState& app, const wchar_t* title, const wchar_t* body) {
     b.dwInfoFlags = NIIF_INFO | NIIF_NOSOUND;
     wcsncpy_s(b.szInfoTitle, title, _TRUNCATE);
     wcsncpy_s(b.szInfo, body, _TRUNCATE);
-    Shell_NotifyIconW(NIM_MODIFY, &b);
+    if (SHOW_TRAY_ICON) Shell_NotifyIconW(NIM_MODIFY, &b);
 }
 
 // MARK: - Elevation (UIPI) helpers
@@ -769,7 +772,7 @@ void registerTrayIcon(AppState& app) {
     app.nid.uCallbackMessage = WM_TRAYICON;
     app.nid.hIcon = app.trayIcon;
     wcscpy_s(app.nid.szTip, L"KuroCat \u9ED1\u732B\u952E\u76D8\u684C\u5BA0 (\u53F3\u952E/\u5DE6\u952E\u6253\u5F00\u83DC\u5355)");
-    Shell_NotifyIconW(NIM_ADD, &app.nid);
+    if (SHOW_TRAY_ICON) Shell_NotifyIconW(NIM_ADD, &app.nid);   // 已关闭托盘图标
 }
 
 HICON createCatTrayIcon() {
